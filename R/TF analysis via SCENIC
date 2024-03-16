@@ -1,1 +1,135 @@
 
+#' Transcriptom factpr analysis via SCENIC
+#' @title SCENIC
+#' @examples 
+
+#' import rds from Seurat
+hsc <- readRDS("hsc_from_exp.rds")
+#' scenic data input
+exprMat <- as.matrix(hsc@assays$RNA@data)
+
+cellInfo <- data.frame(seuratCluster=Idents(hsc))
+cellInfo <- data.frame(cellInfo)
+ClusterColumn <- "Class"
+colnames(cellInfo)[which(colnames(cellInfo)==ClusterColumn)] <- "Cluster"
+
+y <- hsc@meta.data[,c(2,3)]
+cellInfo <- cbind(cellInfo,y)
+colnames(cellInfo)=c('Cluster', 'nGene' ,'nUMI')
+
+dir.create("int")
+saveRDS(cellInfo, file="int/cellInfo.Rds")
+
+colVars <- list(Cluster=c("0"="dodgerblue","1"= "goldenrod1","2"= "darkorange1","3"= "seagreen3","4"= "orchid3"))
+colVars$Cluster <- colVars$Cluster[intersect(names(colVars$Cluster), cellInfo$Cluster)]
+saveRDS(colVars, file="int/colVars.Rds")
+
+#' Gene-motif download
+url <- "https://resources.aertslab.org/cistarget/motif2tf/motifs-v9-nr.mgi-m0.001-o0.0.tbl"
+destfile <- "motifs-v9-nr.mgi-m0.001-o0.0.tbl"
+download.file(url, destfile, mode = "wb")
+motifAnnotations_mgi <- importAnnotations("motifs-v9-nr.mgi-m0.001-o0.0.tbl")
+
+scenicOptions <- initializeScenic(org="mgi", dbDir="cisTarget_databases", nCores=1) 
+scenicOptions@inputDatasetInfo$cellInfo <- "int/cellInfo.Rds"
+saveRDS(scenicOptions, file="int/scenicOptions.Rds") 
+
+#' Co-expression network
+genesKept <- geneFiltering(exprMat, scenicOptions)
+exprMat_filtered <- exprMat[genesKept, ]
+exprMat_filtered[1:4,1:4]
+runCorrelation(exprMat_filtered, scenicOptions)
+exprMat_filtered_log <- log2(exprMat_filtered+1) 
+runGenie3(exprMat_filtered_log, scenicOptions)
+
+#' a steps of SCENIC
+#' runSCENIC_1_coexNetwork2modules(scenicOptions)
+#' runSCENIC_2_createRegulons(scenicOptions, coexMethod=c("top5perTarget")) # Toy run settings
+#' runSCENIC_3_scoreCells(scenicOptions, exprMat_log) 
+#' runSCENIC_4_aucell_binarize(scenicOptions)
+
+#'Build and score the GRN
+exprMat_log <- log2(exprMat+1)
+scenicOptions@settings$dbs <- scenicOptions@settings$dbs["10kb"] # Toy run settings
+scenicOptions <- runSCENIC_1_coexNetwork2modules(scenicOptions)
+scenicOptions <- runSCENIC_2_createRegulons(scenicOptions,coexMethod=c("top5perTarget")) # Toy run settings
+scenicOptions <- runSCENIC_3_scoreCells(scenicOptions, exprMat_log ) 
+scenicOptions <- runSCENIC_4_aucell_binarize(scenicOptions)
+tsneAUC(scenicOptions, aucType="AUC") # choose settings
+
+scenicOptions@fileNames$output["loomFile",] <- "output/hsc_SCENIC.loom"
+export2loom(scenicOptions, exprMat)
+saveRDS(scenicOptions, file="int/scenicOptions.Rds")
+
+#' downstream analysis
+scenicLoomPath <- file.path("output/hsc_SCENIC.loom")
+motifEnrichmentFile <- getOutName(scenicOptions, "s2_motifEnrichment")
+file.exists(scenicLoomPath)
+file.exists(motifEnrichmentFile)
+
+loom <- open_loom(scenicLoomPath)
+#' Read information from loom file:
+exprMat <- get_dgem(loom)
+exprMat_log <- log2(exprMat+1) # Better if it is logged/normalized
+regulons_incidMat <- get_regulons(loom)
+regulons <- regulonsToGeneLists(regulons_incidMat)
+regulonsAUC <- get_regulons_AUC(loom)
+regulonsAucThresholds <- get_regulon_thresholds(loom)
+embeddings <- get_embeddings(loom)
+close_loom(loom)
+
+
+#Also load the motif enrichment results:
+motifEnrichment <- data.table::fread(motifEnrichmentFile, header=T, skip=1)[-3,]
+colnames(motifEnrichment)[1:2] <- c("TF", "MotifID")
+
+#Regulators for known cell types or clusters
+selectedResolution <- "0" # select resolution
+#' Split the cells by cluster:
+cellsPerCluster <- split(rownames(cellInfo), cellInfo$Cluster) 
+regulonAUC <- regulonsAUC[onlyNonDuplicatedExtended(rownames(regulonsAUC)),]
+#' Calculate average expression:
+regulonActivity_byCluster <- sapply(cellsPerCluster,
+                                    function(cells) rowMeans(getAUC(regulonsAUC)[,cells]))
+#'Scale expression:
+regulonActivity_byCluster_Scaled <- t(scale(t(regulonActivity_byCluster), center = T, scale=T))
+
+hm <- ComplexHeatmap::Heatmap(regulonActivity_byCluster_Scaled, name="Regulon activity",column_order = c("3", "1", "4", "2", "0"),
+                              row_names_gp=grid::gpar(fontsize=6)) # row font size
+
+
+
+topRegulators <- reshape2::melt(regulonActivity_byCluster_Scaled)
+colnames(topRegulators) <- c("Regulon", "Cluster", "RelativeActivity")
+topRegulators$Cluster <- factor(as.character(topRegulators$Cluster))
+topRegulators <- topRegulators[which(topRegulators$RelativeActivity>0),]
+dim(topRegulators)
+viewTable(topRegulators, options = list(pageLength = 10))
+
+
+#' Cell-type specific regulators
+#' rss <- calcRSS(AUC=getAUC(regulonAUC), cellAnnotation=cellInfo[colnames(regulonAUC), selectedResolution])
+aucellApp <- plotTsne_AUCellApp(scenicOptions, logMat) # default t-SNE
+savedSelections <- shiny::runApp(aucellApp)
+#AUCell_plotTSNE() to save static plots:
+print(tsneFileName(scenicOptions))
+tSNE_scenic <- readRDS(tsneFileName(scenicOptions))
+aucell_regulonAUC <- loadInt(scenicOptions, "aucell_regulonAUC")
+
+
+#'output/Step2_MotifEnrichment_preview.html in detail/subset:
+getIntName(scenicOptions)
+motifEnrichment_selfMotifs_wGenes <- loadInt(scenicOptions, "motifEnrichment_selfMotifs_wGenes") 
+
+#' motifs for each gene
+motifgenes <- as.data.frame(sort(table(motifEnrichment_selfMotifs_wGenes$highlightedTFs),decreasing = T))
+write.table(motifgenes,file="motifgenes.xls",quote=F,sep="\t",col.names=F)
+
+#' motifs for each gene
+TFgenesets <- readRDS("int/2.6_regulons_asGeneSet.Rds")
+listname <- names(TFgenesets)
+write.table(listname,file="listname.csv",quote = FALSE, row.names = FALSE, sep = ",")
+
+TFgenesets <- as.data.frame(sapply(TFgenesets, "[", i = 1:max(sapply(TFgenesets, length))))
+TFgenesets <- t(TFgenesets)
+write.table(TFgenesets,file="TFgenesets.csv",quote = FALSE, row.names = FALSE, sep = ",")
