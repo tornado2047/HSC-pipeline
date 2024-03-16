@@ -14,6 +14,7 @@ Regulatory network analysis via [SCENIC](https://github.com/tornado2047/HSC-pipe
 
 STEP5
 Find cross genes
+![Image text](https://github.com/tornado2047/HSC-pipeline/blob/main/img/cross%20genes.png)
 
 STEP6
 Pseudotime analysis via [Monocle3](https://github.com/tornado2047/HSC-pipeline/blob/main/R/TI%20analysis%20via%20Monocle3)
