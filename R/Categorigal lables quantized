@@ -1,0 +1,55 @@
+
+# 提取UMAP坐标和Mito.dist信息
+umap_coords <- as.data.frame(hsc@reductions$umap@cell.embeddings)
+mito_dist <- hsc$Mito.dist
+
+# 创建一个包含UMAP坐标和Mito.dist的数据框
+trend.data <- cbind(umap_coords, Mito.dist = mito_dist)
+head(trend.data)
+
+# 将Mito.dist列中的字符映射到数值
+trend.data$Mito.dist[trend.data$Mito.dist == "SD"] <- 1
+trend.data$Mito.dist[trend.data$Mito.dist == "LD"] <- 0.8
+trend.data$Mito.dist[trend.data$Mito.dist == "LP"] <- 0
+
+# 定义一个函数来计算F-value
+calculate_F_value <- function(data, k) {
+  fixed_values <- numeric(length(data$UMAP_1))
+  for (i in 1:length(data$UMAP_1)) {
+    point <- c(data$UMAP_1[i], data$UMAP_2[i])
+    distances <- sqrt((data$UMAP_1 - point[1])^2 + (data$UMAP_2 - point[2])^2)
+    sorted_distances <- sort(distances)
+    closest_points <- data$Mito.dist[distances %in% sorted_distances[1:k]]
+    fixed_values[i] <- mean(as.numeric(closest_points))
+  }
+  return(fixed_values)
+}
+
+# 设置k值
+k <- 5
+
+# 计算fixed.value
+trend.data$fixed.value <- calculate_F_value(trend.data, k)
+
+
+# 创建ggplot图表，去掉背景网格线，显示坐标轴
+h4 <- ggplot(trend.data, aes(x = UMAP_1, y = UMAP_2, color = fixed.value)) +
+  geom_point(size = 2) +
+  scale_color_gradient(low = "palegreen", high = "deeppink",limits = c(0, 1)) +
+  labs(color = "trendency of dist.") +
+  theme_minimal() +  
+  theme(
+    panel.grid = element_blank(),  
+    axis.line = element_line(size = 0.5, color = "black"),  
+    axis.text = element_text(size = 12),  
+    axis.title = element_text(size = 14),  
+    axis.ticks = element_line(size = 0.5),
+    legend.position = "right",  
+    legend.title = element_text(size = 12),  
+    legend.text = element_text(size = 10)  
+  )
+
+
+
+
+
