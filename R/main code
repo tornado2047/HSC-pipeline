@@ -1,7 +1,248 @@
-## Main code
-## 1
-## 2
-## 3
-## 4
-## 5
-## 6
+
+#' @title HSC analysis codes
+#' @description Data input & Seurat & Monocle3 & SCENIC 
+#' @param Expression matrix of young (rt)
+#' @param Expression matrix of old (qt)
+......
+#' @param <>
+#' @return Writes the output in the file name stored in: <>
+#' @examples 
+
+#'#' analysis via Seurat
+library(RISmed)
+library(cli)
+library(rlang)
+library(devtools)
+library(limma)
+library(Seurat)
+library(dplyr)
+library(magrittr)
+library(tidyverse)
+library(patchwork)        
+library(png)
+library(ggplot2)
+library(patchwork)
+library(clustree)
+library(plotly)
+library(viridis)
+library(viridisLite)
+library(cowplot)
+library(ggridges)
+library(RColorBrewer)
+
+rt=read.table("Young.txt",sep="\t",header=T,check.names=F)
+rt <- rt[,-2]
+dim(rt)
+rt=as.matrix(rt)
+rownames(rt)=rt[,1]
+exp=rt[,2:ncol(rt)]
+dimnames=list(rownames(exp),colnames(exp))
+data_young=matrix(as.numeric(as.matrix(exp)),nrow=nrow(exp),dimnames=dimnames)
+data_young=avereps(data_young)
+
+qt=read.table("Old.txt",sep="\t",header=T,check.names=F)
+qt <- qt[,-2]
+dim(qt)
+qt=as.matrix(qt)
+rownames(qt)=qt[,1]
+exp1=qt[,2:ncol(qt)]
+dimnames=list(rownames(exp1),colnames(exp1))
+data_old=matrix(as.numeric(as.matrix(exp1)),nrow=nrow(exp1),dimnames=dimnames)
+data_old=avereps(data_old)
+
+Y <- CreateSeuratObject(counts = data_young , project = "Young")
+O <- CreateSeuratObject(counts = data_old, project = "Old")
+hsc <- merge(Y, y = O, add.cell.ids = c("Young", "Old"), project = "hsc")
+
+annotations <- read.csv("annotation.csv")
+match_index <- match(annotations$Cell.id, colnames(hsc))
+if (!any(is.na(match_index))) {
+  hsc$Group <- annotations$Group[match_index]
+  hsc$Mito.dist <- annotations$Mtio.dist[match_index]
+} else {
+  cat("Unable to find a matching cell name. Please ensure the cell names match.\n")
+}
+
+hsc[["percent.mt"]] <- PercentageFeatureSet(object = hsc, pattern = "^mt-")
+pdf(file="featureViolin.pdf",width=10,height=6)           
+VlnPlot(object = hsc, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3)
+dev.off()
+
+hsc <- subset(hsc, subset = nFeature_RNA > 200 & percent.mt < 5)
+hsc <- NormalizeData(object = hsc, normalization.method = "LogNormalize", scale.factor = 10000)
+hsc <- FindVariableFeatures(object = hsc, selection.method = "vst", nfeatures = 2000)
+top20 <- head(x = VariableFeatures(object = hsc), 20)
+pdf(file="featureVar.pdf",width=10,height=6)              
+plot1 <- VariableFeaturePlot(object = hsc)
+plot2 <- LabelPoints(plot = plot1, points = top20, repel = TRUE)
+CombinePlots(plots = list(plot1, plot2))
+dev.off()
+
+all.genes <- rownames(hsc)
+hsc <- ScaleData(hsc, features = all.genes)
+hsc <- RunPCA(hsc, features = VariableFeatures(object = hsc))
+pdf(file="pcaGene.pdf",width=10,height=8)
+VizDimLoadings(object = hsc, dims = 1:4, reduction = "pca",nfeatures = 20)
+dev.off()
+
+pdf(file="PCA.pdf",width=6.5,height=6)
+DimPlot(object = hsc, reduction = "pca")
+dev.off()
+
+pdf(file="pcaHeatmap.pdf",width=10,height=8)
+DimHeatmap(object = hsc, dims = 1:4, cells = 217, balanced = TRUE)
+dev.off()
+
+hsc <- JackStraw(object = hsc, num.replicate = 100)
+hsc <- ScoreJackStraw(object = hsc, dims = 1:10)
+pdf(file="pcaJackStraw.pdf",width=8,height=6)
+JackStrawPlot(object = hsc, dims = 1:10)
+dev.off()
+
+hsc <- FindNeighbors(hsc, dims = 1:10)
+hsc <- FindClusters(hsc, resolution = 0.8)
+resolution_values <- c(0.2, 0.4, 0.6, 0.8, 1.0)  
+for (resolution in resolution_values) {
+  seurat_object <- FindClusters(hsc, resolution = resolution)
+  modularity <- hsc@assays$integrated_modularity_score
+  cat("Resolution:", resolution, "\tMaximum Modularity:", max(modularity), "\n")
+}
+
+clusterN <- FindClusters(hsc, resolution = seq(0.2,1.6,by=0.2))
+clustree(clusterN)
+pdf(file="clustree.pdf",width=6.5,height=6)
+clustree(clusterN)
+dev.off()
+
+hsc <- RunUMAP(hsc,dims = 1:10, label = T)
+DimPlot(hsc, reduction = "umap")
+hsc <- RunTSNE(hsc,dims = 1:10, label = T)
+DimPlot(hsc, reduction = "tsne")
+
+h1 <- DimPlot(hsc, group.by = "orig.ident",pt.size =2,label.size =60,reduction = "umap")
+h2 <- DimPlot(hsc, group.by = "Group",pt.size =2,label.size =60,reduction = "umap")
+h3 <- DimPlot(hsc, group.by = "Mito.dist",pt.size =2,label.size =60,reduction = "umap")
+
+
+umap_coords <- as.data.frame(hsc@reductions$umap@cell.embeddings)
+mito_dist <- hsc$Mito.dist
+trend.data <- cbind(umap_coords, Mito.dist = mito_dist)
+trend.data$Mito.dist[trend.data$Mito.dist == "SD"] <- 1
+trend.data$Mito.dist[trend.data$Mito.dist == "LD"] <- 0.8
+trend.data$Mito.dist[trend.data$Mito.dist == "LP"] <- 0
+
+calculate_F_value <- function(data, k) {
+  fixed_values <- numeric(length(data$UMAP_1))
+  for (i in 1:length(data$UMAP_1)) {
+    point <- c(data$UMAP_1[i], data$UMAP_2[i])
+    distances <- sqrt((data$UMAP_1 - point[1])^2 + (data$UMAP_2 - point[2])^2)
+    sorted_distances <- sort(distances)
+    closest_points <- data$Mito.dist[distances %in% sorted_distances[1:k]]
+    fixed_values[i] <- mean(as.numeric(closest_points))
+  }
+  return(fixed_values)
+}
+
+k <- 5
+trend.data$fixed.value <- calculate_F_value(trend.data, k)
+h4 <- ggplot(trend.data, aes(x = UMAP_1, y = UMAP_2, color = fixed.value)) +
+  geom_point(size = 2) +
+  scale_color_gradient(low = "palegreen", high = "deeppink",limits = c(0, 1)) +
+  labs(color = "trendency of dist.") +
+  theme_minimal() + 
+  theme(
+    panel.grid = element_blank(), 
+    axis.line = element_line(size = 0.5, color = "black"),  
+    axis.text = element_text(size = 12),  
+    axis.title = element_text(size = 14),  
+    axis.ticks = element_line(size = 0.5),
+    legend.position = "right",  
+    legend.title = element_text(size = 12),  
+    legend.text = element_text(size = 10)  
+  )
+
+
+#'#' TI analysis via Monocle3
+library(Monocle3)
+expr_matrix = GetAssayData(hsc, slot = "counts")
+p_data <- hsc@meta.data 
+f_data <- data.frame(gene_short_name = row.names(hsc),
+                     row.names = row.names(hsc))
+pre_cds <- new_cell_data_set(expr_matrix,
+                             cell_metadata = p_data,
+                             gene_metadata = f_data)
+pData(pre_cds) %>% colnames()
+cds <- preprocess_cds(pre_cds)  
+cds <- reduce_dimension(cds, preprocess_method = "PCA")
+plot_cells(cds, reduction_method="UMAP", 
+           show_trajectory_graph = FALSE,
+           label_cell_groups = FALSE, 
+           cell_size = 1,
+           color_cells_by="Cluster")
+
+cds <- cluster_cells(cds)
+cds <- learn_graph(cds)
+cds <- order_cells(cds) 
+
+t <- plot_cells(cds, color_cells_by = "pseudotime", 
+                 label_cell_groups = FALSE, 
+                 label_leaves = TRUE,  
+                 cell_size = 1,
+                 label_branch_points = TRUE)
+
+pdf(file="pseudo-umap.pdf",width=6,height=6)
+t
+dev.off()
+
+#'#' TF analysis via SCENIC
+library(GENIE3)
+library(AUCell)
+library(RcisTarget)
+library(ComplexHeatmap)
+library(SCENIC)
+
+exprMat <- as.matrix(hsc@assays$RNA@data)
+cellInfo <- data.frame(seuratCluster=Idents(hsc))
+cellInfo <- data.frame(cellInfo)
+ClusterColumn <- "Class"
+colnames(cellInfo)[which(colnames(cellInfo)==ClusterColumn)] <- "Cluster"
+
+add_y <- hsc@meta.data[,c(2,3)]
+cellInfo <- cbind(cellInfo,add_y)
+colnames(cellInfo)=c('Cluster', 'nGene' ,'nUMI')
+
+dir.create("int")
+saveRDS(cellInfo, file="int/cellInfo.Rds")
+colVars <- list(Cluster=c("0"="dodgerblue","1"= "goldenrod1","2"= "darkorange1","3"= "seagreen3","4"= "orchid3"))
+colVars$Cluster <- colVars$Cluster[intersect(names(colVars$Cluster), cellInfo$Cluster)]
+saveRDS(colVars, file="int/colVars.Rds")
+
+# motifAnnotations_mgi <- motifAnnotations_mgi_v9
+url <- "https://resources.aertslab.org/cistarget/motif2tf/motifs-v9-nr.mgi-m0.001-o0.0.tbl"
+destfile <- "motifs-v9-nr.mgi-m0.001-o0.0.tbl"
+download.file(url, destfile, mode = "wb")
+motifAnnotations_mgi <- importAnnotations("motifs-v9-nr.mgi-m0.001-o0.0.tbl")
+
+scenicOptions <- initializeScenic(org="mgi", dbDir="cisTarget_databases", nCores=1) 
+scenicOptions@inputDatasetInfo$cellInfo <- "int/cellInfo.Rds"
+saveRDS(scenicOptions, file="int/scenicOptions.Rds") 
+
+genesKept <- geneFiltering(exprMat, scenicOptions)
+exprMat_filtered <- exprMat[genesKept, ]
+exprMat_filtered[1:4,1:4]
+runCorrelation(exprMat_filtered, scenicOptions)
+exprMat_filtered_log <- log2(exprMat_filtered+1) 
+runGenie3(exprMat_filtered_log, scenicOptions)
+
+
+exprMat_log <- log2(exprMat+1)
+scenicOptions@settings$dbs <- scenicOptions@settings$dbs["10kb"]
+scenicOptions <- runSCENIC_1_coexNetwork2modules(scenicOptions)
+scenicOptions <- runSCENIC_2_createRegulons(scenicOptions,coexMethod=c("top5perTarget")) # Toy run settings
+scenicOptions <- runSCENIC_3_scoreCells(scenicOptions, exprMat_log ) 
+scenicOptions <- runSCENIC_4_aucell_binarize(scenicOptions)
+tsneAUC(scenicOptions, aucType="AUC")
+
+scenicOptions@fileNames$output["loomFile",] <- "output/hsc_SCENIC.loom"
+export2loom(scenicOptions, exprMat)
+saveRDS(scenicOptions, file="int/scenicOptions.Rds")
