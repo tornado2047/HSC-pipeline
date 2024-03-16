@@ -1,0 +1,43 @@
+#' TFgenesets from "TF analysis via SCENIC"
+#' library(igraph)
+#' target TFs (Jun,Junb)
+selected_TFs <- c('Junb_extended','Jun_extended')
+
+network_data <- data.frame(from = character(), to = character(), stringsAsFactors = FALSE)
+#' Traverse each selected transcription factor
+for (tf in selected_TFs) {
+  regulated_genes <- TFgenesets[[tf]]
+  network_data <- rbind(network_data, data.frame(from = tf, to = tf, stringsAsFactors = FALSE))
+  for (gene in regulated_genes) {
+    if (tf != gene) {  
+      network_data <- rbind(network_data, data.frame(from = tf, to = gene, stringsAsFactors = FALSE))
+    }
+  }
+}
+
+#' remove repetiton
+network_data <- unique(network_data)
+#' remove "_extended"
+network_data$from <- sub("_extended$", "", network_data$from)
+network_data$to <- sub("_extended$", "", network_data$to)
+network_data <- subset(network_data, from != to)
+network_data$to
+hsc.markers$gene
+
+
+network <- graph.data.frame(network_data, directed = FALSE)
+hubnames <-  c('Jun', 'Junb')
+
+layout <- layout_with_fr(network)
+plot(network,
+     vertex.label.color = ifelse(V(network)$name %in% hubnames, "red", "black"),
+     vertex.label.dist = 1.25,
+     vertex.label.cex = 0.5,
+     vertex.size = 1,
+     edge.width = 0.5,
+     edge.color = "black",
+     layout = layout, 
+     main = "Your Network Title",  
+     family = "Times New Roman")  
+
+
