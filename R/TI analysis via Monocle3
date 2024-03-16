@@ -1,1 +1,89 @@
 
+#' Pseudotime analysis
+
+expr_matrix = GetAssayData(hsc, slot = "counts")
+
+#' create cds 
+p_data <- hsc@meta.data 
+f_data <- data.frame(gene_short_name = row.names(hsc),
+                     row.names = row.names(hsc))
+pre_cds <- new_cell_data_set(expr_matrix,
+                             cell_metadata = p_data,
+                             gene_metadata = f_data)
+pData(pre_cds) %>% colnames()
+# [1] "orig.ident"      "nCount_RNA"      "nFeature_RNA"    "RNA_snn_res.0.1"
+# [5] "RNA_snn_res.0.5" "RNA_snn_res.0.8" "seurat_clusters" "Cluster"       
+# [9] "Size_Factor"
+
+cds <- preprocess_cds(pre_cds)  
+cds <- reduce_dimension(cds, preprocess_method = "PCA")
+
+plot_cells(cds, reduction_method="UMAP", 
+           show_trajectory_graph = FALSE,
+           label_cell_groups = FALSE, 
+           cell_size = 1,
+           color_cells_by="Cluster")
+
+seurat_umap <- Embeddings(hsc, reduction = "umap")[colnames(cds),]
+cds@int_colData$reducedDims$UMAP <- seurat_umap
+
+plot_cells(cds, reduction_method="Aligned", 
+           show_trajectory_graph = FALSE,
+           label_cell_groups = FALSE, 
+           cell_size = 1)
+
+
+cds <- cluster_cells(cds)
+cds <- learn_graph(cds)
+cds <- order_cells(cds) 
+t1 <- plot_cells(cds, color_cells_by = "pseudotime", 
+                 label_cell_groups = FALSE, 
+                 label_leaves = TRUE,  
+                 cell_size = 1,
+                 label_branch_points = TRUE)
+
+t <- t1 + theme(
+  panel.grid = element_blank(),
+  axis.line = element_line(size = 0.5, color = "black"), # Set the size here
+  axis.text = element_text(size = 12, face = "bold"),
+  axis.title = element_text(size = 14, face = "bold"),
+  axis.ticks = element_line(size = 0.5),
+  legend.position = "right",
+  legend.title = element_text(size = 12),
+  legend.text = element_text(size = 10)
+)
+
+
+
+
+#' Gdf15 as example
+
+h5 <- FeaturePlot(hsc, features = "Gdf15", pt.size =2)
+h5 <- h5 + theme(
+  panel.grid = element_blank(),
+  axis.line = element_line(size = 0.5, color = "black"), # Set the size here
+  axis.text = element_text(size = 12, face = "bold"),
+  axis.title = element_text(size = 14, face = "bold"),
+  axis.ticks = element_line(size = 0.5),
+  legend.position = "right",
+  legend.title = element_text(size = 12),
+  legend.text = element_text(size = 10)
+)
+h5
+
+
+monocle_p5 <- plot_cells(cds, genes="Gdf15", show_trajectory_graph=FALSE,
+                         label_cell_groups=FALSE,  label_leaves=FALSE, cell_size =2.5)
+monocle_p5 <- monocle_p5 + theme(
+  panel.grid = element_blank(),
+  axis.line = element_line(size = 0.5, color = "black"), # Set the size here
+  axis.text = element_text(size = 12, face = "bold"),
+  axis.title = element_text(size = 14, face = "bold"),
+  axis.ticks = element_line(size = 0.5),
+  legend.position = "right",
+  legend.title = element_text(size = 12),
+  legend.text = element_text(size = 10))
+
+
+
+
