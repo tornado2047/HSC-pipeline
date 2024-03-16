@@ -1,133 +1,71 @@
 
+#' analysis via Seurat
+#' @title Seurat analysis
+#' @description 
+#' @return Writes the output in the file name stored in: <>
+#' @examples 
+
+#' Data input and reprocessing
 rt=read.table("Young.txt",sep="\t",header=T,check.names=F)
 rt <- rt[,-2]
-dim(rt)
 rt=as.matrix(rt)
 rownames(rt)=rt[,1]
 exp=rt[,2:ncol(rt)]
 dimnames=list(rownames(exp),colnames(exp))
 data_young=matrix(as.numeric(as.matrix(exp)),nrow=nrow(exp),dimnames=dimnames)
 data_young=avereps(data_young)
-dim(data_young)
-
 
 qt=read.table("Old.txt",sep="\t",header=T,check.names=F)
 qt <- qt[,-2]
-dim(qt)
 qt=as.matrix(qt)
 rownames(qt)=qt[,1]
 exp1=qt[,2:ncol(qt)]
 dimnames=list(rownames(exp1),colnames(exp1))
 data_old=matrix(as.numeric(as.matrix(exp1)),nrow=nrow(exp1),dimnames=dimnames)
 data_old=avereps(data_old)
-dim(data_old)
 
+#' Creat Seurat Objects and Merge
 Y <- CreateSeuratObject(counts = data_young , project = "Young")
 O <- CreateSeuratObject(counts = data_old, project = "Old")
 hsc <- merge(Y, y = O, add.cell.ids = c("Young", "Old"), project = "hsc")
 
-
-#将矩阵转换为Seurat对象，并对数据进行过滤;数据集中测到的少于200个基因的细胞（min.features = 200）和少于3个细胞覆盖的基因（min.cells = 3）被过滤掉
+#' Read annotation data
 annotations <- read.csv("annotation.csv")
 
-# 创建一个匹配细胞名的索引
+#' ID match
 match_index <- match(annotations$Cell.id, colnames(hsc))
-
-# 确保有匹配的细胞名
 if (!any(is.na(match_index))) {
-  # 将Group和Mtio.dist信息添加到Seurat对象中
   hsc$Group <- annotations$Group[match_index]
   hsc$Mito.dist <- annotations$Mtio.dist[match_index]
 } else {
-  cat("无法找到匹配的细胞名。请确保annotations数据框中的细胞名与Seurat对象的细胞名匹配。\n")
+  cat("ID not found\n")
 }
 
-hsc$Group
-hsc$Mito.dist
-hsc$orig.ident
-head(colnames(hsc))
-table(hsc$orig.ident)
-
-###### 质控的参数主要有两个： 
-#### 1.每个细胞测到的unique feature数目（unique feature代表一个细胞检测到的基因的数目，可以根据数据的质量进行调整） 
-#### 2.每个细胞检测到的线粒体基因的比例，理论上线粒体基因组与核基因组相比，只占很小一部分。所以线粒体基因表达比例过高的细胞会被过滤。
-
-#使用Percentage FeatureSet函数计算线粒体基因的百分比
-
 hsc[["percent.mt"]] <- PercentageFeatureSet(object = hsc, pattern = "^mt-")
-
 pdf(file="featureViolin.pdf",width=10,height=6)           
 VlnPlot(object = hsc, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3)
 dev.off()
 
-#去除线粒体基因表达比例过高的细胞，和一些极值细胞
 hsc <- subset(hsc, subset = nFeature_RNA > 200 & percent.mt < 5)
-###### 标准化
-#对数据进行标准化
 hsc <- NormalizeData(object = hsc, normalization.method = "LogNormalize", scale.factor = 10000)
-#提取那些在细胞间变异系数较大的基因
-
 hsc <- FindVariableFeatures(object = hsc, selection.method = "vst", nfeatures = 2000)
-#输出特征方差图
-top20 <- head(x = VariableFeatures(object = hsc), 20)
-pdf(file="featureVar.pdf",width=10,height=6)              
-#保存基因特征方差图
-plot1 <- VariableFeaturePlot(object = hsc)
-plot2 <- LabelPoints(plot = plot1, points = top20, repel = TRUE)
-CombinePlots(plots = list(plot1, plot2))
-dev.off()
 
-
-#####  细胞分类  ##PCA分析
 all.genes <- rownames(hsc)
 hsc <- ScaleData(hsc, features = all.genes)
-
-#PCA降维之前的标准预处理步骤
 hsc <- RunPCA(hsc, features = VariableFeatures(object = hsc))
-
-#绘制每个PCA成分的相关基因
-pdf(file="pcaGene.pdf",width=10,height=8)
-VizDimLoadings(object = hsc, dims = 1:4, reduction = "pca",nfeatures = 20)
-dev.off()
-
-#主成分分析图形
-pdf(file="PCA.pdf",width=6.5,height=6)
-DimPlot(object = hsc, reduction = "pca")
-dev.off()
-
-#主成分分析热图
-pdf(file="pcaHeatmap.pdf",width=10,height=8)
-DimHeatmap(object = hsc, dims = 1:4, cells = 217, balanced = TRUE)
-#1：4是热图分成几个，ncol是分为几列。
-dev.off()
-
-ElbowPlot(object = hsc)
-
-#每个PC的p值分布和均匀分布
 hsc <- JackStraw(object = hsc, num.replicate = 100)
 hsc <- ScoreJackStraw(object = hsc, dims = 1:10)
-pdf(file="pcaJackStraw.pdf",width=8,height=6)
-JackStrawPlot(object = hsc, dims = 1:10)
-dev.off()
 
-###############################################################################################
-
-### *****细胞聚类********
 hsc <- FindNeighbors(hsc, dims = 1:10)
-
 hsc <- FindClusters(hsc, resolution = 0.8)
 
-# 运行Louvain算法，并尝试不同的分辨率值
-resolution_values <- c(0.2, 0.4, 0.6, 0.8, 1.0)  # 可以根据需要调整这些值
-
+#' Clustering with different resolution parameters
+resolution_values <- c(0.2, 0.4, 0.6, 0.8, 1.0)  
 for (resolution in resolution_values) {
   seurat_object <- FindClusters(hsc, resolution = resolution)
   modularity <- hsc@assays$integrated_modularity_score
-  
   cat("Resolution:", resolution, "\tMaximum Modularity:", max(modularity), "\n")
 }
-
-#这里我们设置了dims = 1:10 即选取前10个主成分来分类细胞。
 clusterN <- FindClusters(hsc, resolution = seq(0.2,1.6,by=0.2))
 clustree(clusterN)
 
@@ -135,51 +73,20 @@ pdf(file="clustree.pdf",width=6.5,height=6)
 clustree(clusterN)
 dev.off()
 
-
-#Look at cluster IDs of the first 5 cells
-head(Idents(hsc), 10)
-write.table(Idents(hsc),file="Cluster.txt",quote=F,sep="\t",col.names=F)
-
-#UMAP
+#'UMAP
 hsc <- RunUMAP(hsc,dims = 1:10, label = T)
-head(hsc@reductions$umap@cell.embeddings) 
-
-# 提取UMAP坐标值。
 write.table(hsc@reductions$umap@cell.embeddings,file="umap.txt",quote=F,sep="\t",col.names=F)
+DimPlot(hsc, pt.size =2,label.size =6,reduction = "umap",label = T)
 
-#note that you can set `label = TRUE` or use the Label Clusters function to help label individual clusters
-h <- DimPlot(hsc, pt.size =2,label.size =6,reduction = "umap",label = T)
-
-
-####   pdf(file="07.umap.pdf",width=8,height=6)
-####   dev.off()
-
-#T-SNE
+#'T-SNE
 hsc <- RunTSNE(hsc,dims = 1:10, label = T)
-head(hsc@reductions$tsne@cell.embeddings)
 write.table(hsc@reductions$tsne@cell.embeddings,file="tsne.txt",quote=F,sep="\t",col.names=F)
-dev.new()
-pdf(file="graph.pdf",width=8,height=6)
-p2 <- DimPlot(hsc, reduction = "tsne")
-p2
-p1 + p2
-dev.off()
+DimPlot(hsc, pt.size =2,label.size =6,reduction = "tsne",label = T)
 
-
-dev.new()
-pdf(file="ident-graph.pdf",width=8,height=6)
 
 h1 <- DimPlot(hsc, group.by = "orig.ident",pt.size =2,label.size =60,reduction = "umap")
-h1
-
 h2 <- DimPlot(hsc, group.by = "Group",pt.size =2,label.size =60,reduction = "umap")
-h2
-
 h3 <- DimPlot(hsc, group.by = "Mito.dist",pt.size =2,label.size =60,reduction = "umap")
-h3
-
-
-h|h2
 
 
 
