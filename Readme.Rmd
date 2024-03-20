@@ -10,7 +10,8 @@ This is a bioinformatics analysis workflow for super-resolution imaging informed
 
 ## Workflow summary
 
-![Main Flow Chart](https://github.com/tornado2047/HSC-pipeline/blob/main/img/flow%20chart.png)
+![Main Flow Chart]
+(https://github.com/tornado2047/HSC-pipeline/blob/main/img/flow%20chart.png)
 
 
 ## Credits
