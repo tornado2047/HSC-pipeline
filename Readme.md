@@ -10,8 +10,22 @@ combining analysis.
 
 ## Workflow summary
 
-\[Main Flow Chart\]
-(<https://github.com/tornado2047/HSC-pipeline/blob/main/img/flow%20chart.png>)
+<figure>
+<img
+src="https://github.com/tornado2047/HSC-pipeline/blob/main/img/flow%20chart.png"
+alt="Main Flow Chart" />
+<figcaption aria-hidden="true">Main Flow Chart</figcaption>
+</figure>
+
+<div align="center">
+
+<p>
+Main Flow Chart
+</p>
+
+<img src="https://github.com/tornado2047/HSC-pipeline/blob/main/img/flow%20chart.png" alt="Main Flow Chart" />
+
+</div>
 
 ## Credits
 
