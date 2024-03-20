@@ -4,18 +4,11 @@ HSC-pipeline
 ## Introduction
 
 This is a bioinformatics analysis workflow for super-resolution imaging
-informed scRNA sequencing analysis. The workflow is based on some
+informed sc-RNA sequencing analysis. The workflow is based on some
 packages including Seurat, Monocle3 and SCENIC, and contains additional
 combining analysis.
 
 ## Workflow summary
-
-<figure>
-<img
-src="https://github.com/tornado2047/HSC-pipeline/blob/main/img/flow%20chart.png"
-alt="Main Flow Chart" />
-<figcaption aria-hidden="true">Main Flow Chart</figcaption>
-</figure>
 
 <div align="center">
 

@@ -5,7 +5,7 @@ output: github_document
 
 ## Introduction
 
-This is a bioinformatics analysis workflow for super-resolution imaging informed scRNA sequencing analysis. The workflow is based on some packages including Seurat, Monocle3 and SCENIC,  and contains additional combining analysis. 
+This is a bioinformatics analysis workflow for super-resolution imaging informed sc-RNA sequencing analysis. The workflow is based on some packages including Seurat, Monocle3 and SCENIC,  and contains additional combining analysis. 
 
 
 ## Workflow summary
